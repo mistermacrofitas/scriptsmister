@@ -1,0 +1,79 @@
+import ee
+import geemap
+import folium
+
+# Autenticação e inicialização do Earth Engine
+ee.Authenticate()
+ee.Initialize(project='ee-alissondavi19')  # Substitua 'ee-alissondavi19' pelo seu ID do projeto
+
+# Carregar a área de interesse (aoi)
+aoi = ee.FeatureCollection("projects/ee-alissondavi19/assets/Geometriascorrigidas") # Substitua pelo caminho da sua área de interesse
+
+# Lista de meses que você quer consultar
+dates = [
+    '2024-06', '2024-09', '2025-01',
+    '2025-03'
+]
+
+def display_images():
+    # Centraliza o mapa na geometria corrigida
+    map_center = aoi.geometry().centroid().coordinates().getInfo()
+    my_map = folium.Map(location=[map_center[1], map_center[0]], zoom_start=10)
+
+    for date in dates:
+        start_date = f'{date}-01'
+        end_date = f'{date}-30'
+
+        # Coleção Landsat 9 Level 2, Collection 2, Tier 1
+        image_collection = ee.ImageCollection("LANDSAT/LC09/C02/T1_TOA")\
+            .filterDate(start_date, end_date) \
+            .filterBounds(aoi) \
+            .filter(ee.Filter.lt('CLOUD_COVER', 100))  # Filtra por cobertura de nuvens
+
+        num_images = image_collection.size().getInfo()
+        if num_images == 0:
+            print(f'Nenhuma imagem encontrada para {date} na área de interesse.')
+            continue
+
+        # Iterar sobre as imagens na coleção
+        images = image_collection.toList(num_images)
+        for i in range(num_images):
+            image = ee.Image(images.get(i))
+
+            try:
+                # Parâmetros de visualização para Landsat 9
+                vis_params = {
+                    'bands': ['B4', 'B3', 'B2'],
+                    'min': 0,
+                    'max': 0.3,
+                    'gamma': 1.4
+                }
+
+                # Extrair a data da imagem
+                image_date = ee.Date(image.get('system:time_start')).format('YYYY-MM-dd').getInfo()
+
+                folium.TileLayer(
+                    tiles=image.getMapId(vis_params)['tile_fetcher'].url_format,
+                    attr="Google Earth Engine",
+                    name=f"Imagem {image_date}",  # Inclui a data no nome da camada
+                    overlay=True
+                ).add_to(my_map)
+
+                print(f"Imagem {i+1} de {date}: {image_date}")  # Exibe a data no console
+
+            except Exception as e:
+                print(f'Erro ao exibir imagem para {date}: {e}')
+
+    # Adiciona a geometria ao mapa
+    folium.GeoJson(
+        aoi.geometry().getInfo(),  # Converte a geometria para GeoJSON
+        name='Área de Interesse'
+    ).add_to(my_map)
+
+    folium.LayerControl().add_to(my_map) # Adiciona o controle de camadas
+
+    return my_map  # Retorna o mapa folium
+
+# Exibe o mapa
+mapa = display_images()
+mapa
